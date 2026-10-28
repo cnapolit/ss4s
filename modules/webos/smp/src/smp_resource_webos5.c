@@ -6,12 +6,21 @@
 struct StarfishResource {
     char windowId[32];
     int maxRefreshRate;
+    // The window was made by another process (SS4S_SMP_WINDOW_ID), which also places it: this one never touches SDL.
+    bool externalWindow;
 };
 
 StarfishResource *StarfishResourceCreate(const char *appId) {
     (void) appId;
     StarfishResource *res = calloc(1, sizeof(StarfishResource));
     assert(res != NULL);
+    const char *external = getenv("SS4S_SMP_WINDOW_ID");
+    if (external != NULL && external[0] != '\0') {
+        strncpy(res->windowId, external, sizeof(res->windowId) - 1);
+        res->externalWindow = true;
+        res->maxRefreshRate = 60;
+        return res;
+    }
     if (!SDL_webOSGetRefreshRate(&res->maxRefreshRate)) {
         res->maxRefreshRate = 60;
     }
@@ -19,7 +28,7 @@ StarfishResource *StarfishResourceCreate(const char *appId) {
 }
 
 void StarfishResourceDestroy(StarfishResource *res) {
-    if (res->windowId[0] != '\0') {
+    if (res->windowId[0] != '\0' && !res->externalWindow) {
         SDL_webOSDestroyExportedWindow(res->windowId);
     }
     free(res);
@@ -40,6 +49,18 @@ bool StarfishResourcePopulateLoadPayload(StarfishResource *resource, jvalue_ref 
         }
         jvalue_ref option = jobject_get(arg, J_CSTR_TO_BUF("option"));
         jobject_set(option, J_CSTR_TO_BUF("windowId"), j_cstr_to_jval(resource->windowId));
+        // Which of the TV's video outputs to play on: main_video (the default) or sub_video, the second hardware
+        // window a TV like the LG C1 has beside the main one.
+        const char *sink = getenv("SS4S_SMP_VIDEO_SINK");
+        if (sink != NULL && sink[0] != '\0') {
+            jobject_set(option, J_CSTR_TO_BUF("avSink"), jobject_create_var(
+                jkeyval(J_CSTR_TO_JVAL("videoSink"), jobject_create_var(
+                    jkeyval(J_CSTR_TO_JVAL("type"), j_cstr_to_jval(sink)),
+                    J_END_OBJ_DECL
+                )),
+                J_END_OBJ_DECL
+            ));
+        }
     }
     return true;
 }
@@ -72,6 +93,9 @@ bool StarfishResourceLoadCompleted(StarfishResource *resource, const char *media
 bool StarfishResourcePostLoad(StarfishResource *resource, const SS4S_VideoInfo *info) {
     if (resource->windowId[0] == '\0') {
         return false;
+    }
+    if (resource->externalWindow) {
+        return true;
     }
     SDL_DisplayMode dm;
     SDL_GetCurrentDisplayMode(0, &dm);
