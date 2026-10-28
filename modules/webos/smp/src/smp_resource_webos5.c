@@ -77,6 +77,16 @@ bool StarfishResourcePostLoad(StarfishResource *resource, const SS4S_VideoInfo *
     SDL_GetCurrentDisplayMode(0, &dm);
     SDL_Rect src = {0, 0, info->width, info->height};
     SDL_Rect dst = {0, 0, dm.w, dm.h};
+    // Fit the video to the screen at its own aspect ratio, letterboxed, rather than stretch it.
+    if (info->width > 0 && info->height > 0) {
+        if ((long long) info->width * dm.h > (long long) info->height * dm.w) {
+            dst.h = (int) ((long long) dm.w * info->height / info->width);
+            dst.y = (dm.h - dst.h) / 2;
+        } else {
+            dst.w = (int) ((long long) dm.h * info->width / info->height);
+            dst.x = (dm.w - dst.w) / 2;
+        }
+    }
     SDL_webOSSetExportedWindow(resource->windowId, &src, &dst);
     return true;
 }
